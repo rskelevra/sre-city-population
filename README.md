@@ -94,7 +94,7 @@ docker build -t <your-registry>/city-population-api:1.0.0 .
 docker push <your-registry>/city-population-api:1.0.0
 ```
 
-For **minikube**: `eval $(minikube docker-env)` then build locally.
+For **minikube/Rancher**: `eval $(minikube/Rancher docker-env)` then build locally.
 For **kind**: `kind load docker-image city-population-api:1.0.0`
 
 ### Install
@@ -136,8 +136,9 @@ kubectl delete namespace city-api
 ## Running Tests
 
 ```bash
-pip install -r app/requirements.txt
+pip install -r app/requirements.txt or python -m pip install -r app/requirements.txt
 pytest tests/ -v
+```
 ```
 
 Tests mock Elasticsearch entirely — no infra needed. Uses `pytest_asyncio.fixture` for the async HTTP client (ran into issues with plain `@pytest.fixture` on async generators — more on that in the reflection below).
@@ -186,19 +187,15 @@ sre-city-population/
 
 ### Challenges I Ran Into
 
-**1. Elasticsearch's `date` field doesn't accept `"now"` in documents**
-
-This one tripped me up. I initially set `"updated_at": "now"` in the upsert document body, thinking ES would resolve it like it does in queries. Nope — ES threw a `document_parsing_exception`. Turns out the `now` keyword only works in query DSL and scripts, not in document source. Fixed it by using `datetime.now(timezone.utc).isoformat()` to pass an actual ISO timestamp.
-
-**2. ES 8.x Python client deprecated the `body=` parameter**
+1. ES 8.x Python client deprecated the `body=` parameter
 
 The `indices.create(index=..., body=...)` pattern that you see in most Stack Overflow answers and tutorials is for the ES 7.x client. The 8.x client wants separate keyword arguments — `mappings=`, `settings=`, etc. I kept getting a cryptic `mapper_parsing_exception` about "Expected map for property [fields]" until I figured this out. In the end I simplified it by dropping the explicit mapping and letting ES auto-detect types from the first indexed document, which is fine for this use case.
 
-**3. Sorting on a `text` field breaks in ES**
+2. Sorting on a `text` field breaks in ES
 
 When I let ES auto-detect field types (no explicit mapping), it mapped `city` as a `text` field. My list endpoint tried to `"sort": [{"city": "asc"}]` and ES refused — text fields aren't sortable by default because they go through analysis. The fix was using the auto-generated keyword sub-field: `"sort": [{"city.keyword": "asc"}]`. Small thing but it took me a minute to connect the error message to the actual cause.
 
-**4. `pytest-asyncio` fixture gotcha**
+3. `pytest-asyncio` fixture gotcha
 
 My test fixtures for the async HTTP client used `@pytest.fixture` but since the fixture was an async generator, pytest couldn't handle it properly — every test failed with `'async_generator' object has no attribute 'get'`. Switching to `@pytest_asyncio.fixture` fixed it. The deprecation warning in the pytest output actually pointed me in the right direction here.
 

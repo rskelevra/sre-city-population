@@ -6,9 +6,10 @@ Designed for containerized deployment on Kubernetes.
 """
 
 import os
+import ssl
 import logging
+import asyncio
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
@@ -24,6 +25,7 @@ ES_SCHEME = os.getenv("ELASTICSEARCH_SCHEME", "http")
 ES_USER = os.getenv("ELASTICSEARCH_USER", "")
 ES_PASSWORD = os.getenv("ELASTICSEARCH_PASSWORD", "")
 ES_INDEX = os.getenv("ELASTICSEARCH_INDEX", "cities")
+ES_VERIFY_CERTS = os.getenv("ELASTICSEARCH_VERIFY_CERTS", "true").lower() in ("true", "1", "yes")
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
 # ---------------------------------------------------------------------------
@@ -50,19 +52,59 @@ INDEX_MAPPING = {
 
 async def _init_es() -> AsyncElasticsearch:
     """Create the ES client and ensure the index exists."""
+    es_url = f"{ES_SCHEME}://{ES_HOST}:{ES_PORT}"
+
     kwargs: dict = {
-        "hosts": [f"{ES_SCHEME}://{ES_HOST}:{ES_PORT}"],
+        "hosts": [es_url],
         "retry_on_timeout": True,
         "max_retries": 5,
     }
+
+    # --- Authentication (ES 8.x enables security by default) ---
     if ES_USER and ES_PASSWORD:
         kwargs["basic_auth"] = (ES_USER, ES_PASSWORD)
+        logger.info("Using basic auth with user '%s'", ES_USER)
 
+    # --- TLS / self-signed cert handling ---
+    if ES_SCHEME == "https":
+        kwargs["verify_certs"] = ES_VERIFY_CERTS
+        kwargs["ssl_show_warn"] = False           # suppress urllib3 InsecureRequestWarning
+
+        if not ES_VERIFY_CERTS:
+            # Build a permissive SSL context for self-signed certs
+            ssl_ctx = ssl.create_default_context()
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = ssl.CERT_NONE
+            kwargs["ssl_context"] = ssl_ctx
+            logger.info("TLS certificate verification DISABLED (self-signed cert mode)")
+
+    logger.info("Connecting to Elasticsearch at %s …", es_url)
     client = AsyncElasticsearch(**kwargs)
 
-    # Wait for cluster to be reachable
-    if not await client.ping():
-        raise RuntimeError("Cannot reach Elasticsearch cluster")
+    # Wait for Elasticsearch to become available (ES 8.x takes longer due to TLS bootstrap)
+    max_attempts = 30
+    delay_seconds = 4
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            if await client.ping():
+                logger.info("Elasticsearch is reachable (attempt %d)", attempt)
+                break
+        except Exception as exc:
+            logger.warning(
+                "Elasticsearch not ready yet (attempt %d/%d): %s",
+                attempt,
+                max_attempts,
+                exc,
+            )
+
+        if attempt == max_attempts:
+            raise RuntimeError(
+                f"Cannot reach Elasticsearch at {es_url} after {max_attempts} attempts. "
+                f"scheme={ES_SCHEME}, verify_certs={ES_VERIFY_CERTS}, user={'set' if ES_USER else 'unset'}"
+            )
+
+        await asyncio.sleep(delay_seconds)
 
     # Create index if it doesn't already exist
     if not await client.indices.exists(index=ES_INDEX):
@@ -80,7 +122,6 @@ async def _init_es() -> AsyncElasticsearch:
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     global es
-    logger.info("Connecting to Elasticsearch at %s://%s:%s …", ES_SCHEME, ES_HOST, ES_PORT)
     es = await _init_es()
     logger.info("Elasticsearch connection established ✓")
     yield
