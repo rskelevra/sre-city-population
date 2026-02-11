@@ -6,7 +6,7 @@
 replicaCount: 2
 
 image:
-  repository: city-population-api
+  repository: rsharm49/city-population-api
   tag: "3.0.0"
   pullPolicy: IfNotPresent
 

@@ -109,8 +109,8 @@ helm dependency build
 helm install city-api . \
   --create-namespace \
   --namespace city-api \
-  --set image.repository=<your-registry>/city-population-api \
-  --set image.tag=1.0.0
+  --set image.repository=rsharm49/city-population-api \
+  --set image.tag=3.0.0
 ```
 
 ### Verify
@@ -199,6 +199,13 @@ When I let ES auto-detect field types (no explicit mapping), it mapped `city` as
 
 My test fixtures for the async HTTP client used `@pytest.fixture` but since the fixture was an async generator, pytest couldn't handle it properly — every test failed with `'async_generator' object has no attribute 'get'`. Switching to `@pytest_asyncio.fixture` fixed it. The deprecation warning in the pytest output actually pointed me in the right direction here.
 
+4. During Kubernetes deployment via Helm, the application was unable to connect to Elasticsearch over HTTP. While disabling security worked in a local environment by modifying /etc/elasticsearch/elasticsearch.yml, the official Elasticsearch 8.5.x Helm chart enforces security defaults and automatically enables TLS and authentication.
+
+Attempts to disable security via values.yaml were ineffective because the Helm chart hardcodes several security-related environment variables and startup parameters. Increasing memory allocation did not resolve the issue, confirming the problem was configuration-level rather than resource-related.
+
+This required adjusting the application configuration to support HTTPS and authenticated connections instead of attempting to downgrade Elasticsearch security behavior.
+
+Key learning: Elasticsearch 8.x treats security as a mandatory default in containerized deployments, and Helm charts may enforce opinionated configurations that override user-supplied values.
 ### What I'd Do for Production
 
 **High Availability:**
