@@ -1,5 +1,5 @@
 # ============================================================
-# City Population API — Helm Values
+# City Population API — Helm Values (ES 8.x with HTTPS)
 # ============================================================
 
 # -- Application --
@@ -7,7 +7,7 @@ replicaCount: 2
 
 image:
   repository: city-population-api
-  tag: "1.0.0"
+  tag: "3.0.0"
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -25,26 +25,25 @@ ingress:
   enabled: false
   className: nginx
   annotations: {}
-    # cert-manager.io/cluster-issuer: letsencrypt-prod
   hosts:
     - host: city-api.example.com
       paths:
         - path: /
           pathType: Prefix
   tls: []
-  #  - secretName: city-api-tls
-  #    hosts:
-  #      - city-api.example.com
 
 # -- Application config --
+# ES 8.x auto-enables TLS + security. The API connects via HTTPS
+# and reads the auto-generated password from the ES secret.
 config:
   elasticsearch:
-    host: "city-population-api-elasticsearch-master"
+    host: "elasticsearch-master"
     port: 9200
-    scheme: "http"
+    scheme: "https"
     index: "cities"
-    user: ""
-    password: ""
+    user: "elastic"
+    # password is read from ES-generated secret (see deployment.yaml)
+    verifyCerts: "false"
   logLevel: "INFO"
 
 # -- Resources --
@@ -73,24 +72,24 @@ podAnnotations:
   prometheus.io/scrape: "true"
   prometheus.io/port: "8000"
 
-# -- Probes --
+# -- Probes (increased delays for ES 8.x TLS bootstrap) --
 livenessProbe:
   httpGet:
     path: /health
     port: 8000
-  initialDelaySeconds: 15
+  initialDelaySeconds: 30
   periodSeconds: 20
   timeoutSeconds: 5
-  failureThreshold: 3
+  failureThreshold: 5
 
 readinessProbe:
   httpGet:
     path: /health
     port: 8000
-  initialDelaySeconds: 10
+  initialDelaySeconds: 20
   periodSeconds: 10
-  timeoutSeconds: 3
-  failureThreshold: 3
+  timeoutSeconds: 5
+  failureThreshold: 5
 
 # -- Service Account --
 serviceAccount:
@@ -104,7 +103,7 @@ podDisruptionBudget:
   minAvailable: 1
 
 # ============================================================
-# Elasticsearch sub-chart values
+# Elasticsearch sub-chart values (ES 8.x)
 # ============================================================
 elasticsearch:
   enabled: true
@@ -113,11 +112,11 @@ elasticsearch:
 
   resources:
     requests:
-      cpu: 500m
-      memory: 1Gi
+      cpu: 250m
+      memory: 512Mi
     limits:
-      cpu: 1000m
-      memory: 2Gi
+      cpu: 1
+      memory: 1Gi
 
   volumeClaimTemplate:
     accessModes: ["ReadWriteOnce"]
@@ -125,10 +124,12 @@ elasticsearch:
       requests:
         storage: 10Gi
 
+  # NO extraEnvs — the ES 8.x chart already injects all security env vars.
+  # Adding them here causes "duplicate entries" errors.
+
   esConfig:
     elasticsearch.yml: |
-      xpack.security.enabled: false
       cluster.name: "city-population"
       network.host: 0.0.0.0
 
-  esJavaOpts: "-Xmx1g -Xms1g"
+  esJavaOpts: "-Xms512m -Xmx512m"

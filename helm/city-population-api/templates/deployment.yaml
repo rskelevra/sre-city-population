@@ -51,20 +51,21 @@ spec:
               value: {{ .Values.config.elasticsearch.scheme | quote }}
             - name: ELASTICSEARCH_INDEX
               value: {{ .Values.config.elasticsearch.index | quote }}
+            - name: ELASTICSEARCH_VERIFY_CERTS
+              value: {{ .Values.config.elasticsearch.verifyCerts | default "true" | quote }}
             - name: LOG_LEVEL
               value: {{ .Values.config.logLevel | quote }}
             {{- if .Values.config.elasticsearch.user }}
             - name: ELASTICSEARCH_USER
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "city-population-api.fullname" . }}-es-creds
-                  key: username
+              value: {{ .Values.config.elasticsearch.user | quote }}
+            {{- end }}
+            # Read the auto-generated password from the ES secret.
+            # The ES 8.x Helm chart creates this secret automatically.
             - name: ELASTICSEARCH_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "city-population-api.fullname" . }}-es-creds
+                  name: elasticsearch-master-credentials
                   key: password
-            {{- end }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:
