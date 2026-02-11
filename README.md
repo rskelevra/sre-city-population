@@ -110,7 +110,7 @@ helm install city-api . \
   --create-namespace \
   --namespace city-api \
   --set image.repository=rsharm49/city-population-api \
-  --set image.tag=3.0.0
+  --set image.tag=1.0.0
 ```
 
 ### Verify
@@ -203,7 +203,7 @@ My test fixtures for the async HTTP client used `@pytest.fixture` but since the 
 
 Attempts to disable security via values.yaml were ineffective because the Helm chart hardcodes several security-related environment variables and startup parameters. Increasing memory allocation did not resolve the issue, confirming the problem was configuration-level rather than resource-related.
 
-This required adjusting the application configuration to support HTTPS and authenticated connections instead of attempting to downgrade Elasticsearch security behavior.
+After a few failed attempts trying to force-disable security in values.yaml, I switched approach and updated the app to support HTTPS + auth instead.
 
 Key learning: Elasticsearch 8.x treats security as a mandatory default in containerized deployments, and Helm charts may enforce opinionated configurations that override user-supplied values.
 ### What I'd Do for Production
@@ -225,7 +225,7 @@ Key learning: Elasticsearch 8.x treats security as a mandatory default in contai
 - The Helm chart already references secrets via `secretKeyRef` for ES creds — just need to actually create the K8s Secret.
 - Add a NetworkPolicy so only the API pods can talk to ES on port 9200.
 - API-level auth — probably API keys or JWT depending on who the consumers are.
-- The container already runs as non-root with a read-only filesystem and dropped capabilities, which covers the basics.
+- Container runs as non-root with dropped Linux capabilities. Didn’t go deep into seccomp/AppArmor here, but that’d be the next step.
 
 **CI/CD:**
 - GitHub Actions pipeline: lint → test → build image → push to registry → deploy via Helm.
