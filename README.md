@@ -120,8 +120,8 @@ kubectl get pods -n city-api
 kubectl rollout status statefulset/city-api-elasticsearch-master -n city-api
 
 # Port-forward and test
-kubectl port-forward svc/city-api-city-population-api 8080:80 -n city-api
-curl http://localhost:8080/health
+kubectl port-forward svc/city-api-city-population-api 8000:80 -n city-api
+curl http://localhost:8000/health
 ```
 
 ### Uninstall
